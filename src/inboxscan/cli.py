@@ -91,8 +91,7 @@ def run(
             console.print(f"[red]{e}[/red]")
             continue
 
-        domain = email_addr.split("@")[-1].lower()
-        if domain in ("protonmail.com", "proton.me"):
+        if host == "127.0.0.1":
             console.print("[dim]ProtonMail detected — ensure Bridge is running (proton.me/mail/bridge)[/dim]")
 
         if password:
