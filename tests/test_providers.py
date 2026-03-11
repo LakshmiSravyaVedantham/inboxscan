@@ -1,7 +1,7 @@
 # tests/test_providers.py
 import pytest
 from unittest.mock import patch
-from inboxscan.providers import detect_provider, IMAP_PROVIDERS
+from inboxscan.providers import detect_provider, IMAP_PROVIDERS  # noqa: F401
 
 
 def test_gmail_detected():
@@ -113,3 +113,35 @@ def test_custom_provider_from_config():
         host, port = detect_provider("me@customco.com", interactive=False)
         assert host == "imap.customco.com"
         assert port == 993
+
+
+def test_invalid_email_no_at_sign():
+    with pytest.raises(ValueError, match="Invalid email"):
+        detect_provider("notanemail", interactive=False)
+
+
+def test_empty_string_host_falls_through_to_domain_lookup():
+    # Empty string imap_host should NOT override — falls through to domain detection
+    host, port = detect_provider("me@gmail.com", interactive=False, imap_host=None)
+    assert host == "imap.gmail.com"
+
+
+def test_interactive_path_saves_and_returns(tmp_path, monkeypatch):
+    import inboxscan.providers as p
+    monkeypatch.setattr(p, "_CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr("builtins.input", lambda prompt: "mail.corp.com" if "host" in prompt.lower() else "")
+    host, port = detect_provider("me@corp.com", interactive=True)
+    assert host == "mail.corp.com"
+    assert port == 993
+    # Verify it was saved
+    assert (tmp_path / "config.json").exists()
+
+
+def test_interactive_bad_port_falls_back_to_993(tmp_path, monkeypatch):
+    import inboxscan.providers as p
+    monkeypatch.setattr(p, "_CONFIG_PATH", tmp_path / "config.json")
+    responses = iter(["mail.corp.com", "notaport"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(responses))
+    host, port = detect_provider("me@corp2.com", interactive=True)
+    assert host == "mail.corp.com"
+    assert port == 993

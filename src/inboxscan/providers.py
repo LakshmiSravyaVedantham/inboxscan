@@ -66,8 +66,11 @@ def detect_provider(
     4. Interactive prompt (if interactive=True)
     5. Raise ValueError (if interactive=False)
     """
-    if imap_host:
+    if imap_host is not None:
         return (imap_host, imap_port or 993)
+
+    if "@" not in email:
+        raise ValueError(f"Invalid email address: {email}")
 
     domain = email.split("@")[-1].lower()
 
@@ -87,7 +90,11 @@ def detect_provider(
     print(f"Unknown provider for {domain}")
     host = input("IMAP host (e.g. mail.mycompany.com): ").strip()
     port_str = input("IMAP port [993]: ").strip()
-    port = int(port_str) if port_str else 993
+    try:
+        port = int(port_str) if port_str else 993
+    except ValueError:
+        print(f"Invalid port '{port_str}', using 993")
+        port = 993
 
     _save_custom_provider(domain, host, port)
     print("Saved to ~/.inboxscan/config.json — won't ask again.")
