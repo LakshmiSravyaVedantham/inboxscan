@@ -1,0 +1,10 @@
+pyproject.toml
+src/inboxscan/__init__.py
+src/inboxscan/models.py
+src/inboxscan.egg-info/PKG-INFO
+src/inboxscan.egg-info/SOURCES.txt
+src/inboxscan.egg-info/dependency_links.txt
+src/inboxscan.egg-info/entry_points.txt
+src/inboxscan.egg-info/requires.txt
+src/inboxscan.egg-info/top_level.txt
+tests/test_models.py
