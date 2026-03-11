@@ -1,5 +1,6 @@
 import typer
 from rich.console import Console
+from typing import Optional
 from inboxscan import __version__
 
 app = typer.Typer(help="Find every subscription hiding in your email.")
@@ -51,7 +52,15 @@ def run(
     ),
     password: str = typer.Option(
         None, "--password", "-p",
-        help="Gmail app password (fallback if not using OAuth)"
+        help="App password (fallback if not using OAuth)"
+    ),
+    imap_host: Optional[str] = typer.Option(
+        None, "--imap-host",
+        help="Override IMAP host (auto-detected from email domain by default)"
+    ),
+    imap_port: Optional[int] = typer.Option(
+        None, "--imap-port",
+        help="Override IMAP port (default 993)"
     ),
 ):
     """Scan your email for active subscriptions."""
@@ -62,6 +71,7 @@ def run(
     from inboxscan.reporter import print_report
     from inboxscan.cache import save_result
     from inboxscan.auth import list_accounts, get_access_token
+    from inboxscan.providers import detect_provider
 
     accounts_to_scan = list(email) if email else list_accounts()
 
@@ -74,12 +84,23 @@ def run(
 
     for email_addr in accounts_to_scan:
         console.print(f"\n[dim]Scanning {email_addr}...[/dim]")
+
+        try:
+            host, port = detect_provider(email_addr, imap_host=imap_host, imap_port=imap_port)
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
+            continue
+
+        domain = email_addr.split("@")[-1].lower()
+        if domain in ("protonmail.com", "proton.me"):
+            console.print("[dim]ProtonMail detected — ensure Bridge is running (proton.me/mail/bridge)[/dim]")
+
         if password:
-            account = EmailAccount(email=email_addr, password=password)
+            account = EmailAccount(email=email_addr, password=password, imap_host=host, imap_port=port)
         else:
             try:
                 access_token = get_access_token(email_addr)
-                account = EmailAccount(email=email_addr, access_token=access_token)
+                account = EmailAccount(email=email_addr, access_token=access_token, imap_host=host, imap_port=port)
             except ValueError as e:
                 console.print(f"[red]{e}[/red]")
                 continue
