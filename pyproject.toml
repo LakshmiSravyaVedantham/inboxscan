@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inboxscan"
-version = "0.3.0"
+version = "0.4.0"
 description = "Find every subscription hiding in your email — zero credentials stored, nothing leaves your machine."
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -17,6 +17,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+menubar = [
+    "rumps>=0.4.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -28,6 +31,7 @@ dev = [
 
 [project.scripts]
 inboxscan = "inboxscan.cli:app"
+inboxscan-menubar = "inboxscan.menubar:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
