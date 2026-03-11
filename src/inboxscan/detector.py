@@ -44,6 +44,12 @@ KNOWN_SERVICES: dict[str, tuple[str, str, str]] = {
     "cloudflare.com": ("Cloudflare", "https://dash.cloudflare.com/profile/billing", "monthly"),
     "twilio.com": ("Twilio", "https://console.twilio.com/billing", "monthly"),
     "mailchimp.com": ("Mailchimp", "https://us1.admin.mailchimp.com/account/billing/", "monthly"),
+    "replicate.com": ("Replicate", "https://replicate.com/account/billing", "monthly"),
+    "x.ai": ("xAI Grok", "https://x.ai/account", "monthly"),
+    "soundcloud.com": ("SoundCloud", "https://soundcloud.com/settings/subscription", "monthly"),
+    "codeium.com": ("Windsurf", "https://windsurf.com/account/billing", "monthly"),
+    "suno.com": ("Suno", "https://suno.com/account", "monthly"),
+    "suno.ai": ("Suno", "https://suno.com/account", "monthly"),
 }
 
 DORMANT_THRESHOLD_DAYS = 90
@@ -71,6 +77,60 @@ def detect_service(parsed_email: ParsedEmail) -> Optional[Subscription]:
                 cancellation_url=cancel_url,
             )
     return None
+
+
+def detect_from_batch(emails: list[ParsedEmail]) -> list[Subscription]:
+    """
+    Detect subscriptions from a batch of emails by grouping by sender domain.
+    Any domain that appears 2+ times with a charge amount is treated as a
+    recurring subscription — even if not in KNOWN_SERVICES.
+    Returns one Subscription per domain (most recent charge).
+    """
+    from collections import defaultdict
+
+    # Group emails by sender domain, keep only those with amounts
+    by_domain: dict[str, list[ParsedEmail]] = defaultdict(list)
+    for email in emails:
+        if email.amount is not None:
+            domain = _extract_sender_domain(email.sender)
+            if domain:
+                by_domain[domain].append(email)
+
+    subscriptions = []
+    for domain, domain_emails in by_domain.items():
+        # Check known services first
+        known_match = None
+        for service_domain, (name, cancel_url, frequency) in KNOWN_SERVICES.items():
+            if domain.endswith(service_domain):
+                known_match = (name, cancel_url, frequency)
+                break
+
+        # Sort by date, take most recent
+        domain_emails.sort(key=lambda e: e.date, reverse=True)
+        latest = domain_emails[0]
+
+        if known_match:
+            name, cancel_url, frequency = known_match
+        elif len(domain_emails) >= 2:
+            # Unknown service but recurring — use cleaned domain as name
+            name = domain.replace(".com", "").replace(".io", "").replace(".app", "").title()
+            cancel_url = None
+            frequency = "monthly"
+        else:
+            continue  # single email, unknown service — skip
+
+        subscriptions.append(Subscription(
+            service_name=name,
+            amount=latest.amount,
+            currency=latest.currency,
+            billing_frequency=frequency,
+            last_charge_date=latest.date,
+            source_email="",
+            status=classify_status(latest.date),
+            cancellation_url=cancel_url,
+        ))
+
+    return subscriptions
 
 
 def classify_status(last_charge_date: date) -> SubscriptionStatus:

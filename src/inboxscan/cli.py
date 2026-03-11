@@ -49,6 +49,10 @@ def run(
         None, "--email", "-e",
         help="Email to scan (optional — uses all connected accounts if not specified)"
     ),
+    password: str = typer.Option(
+        None, "--password", "-p",
+        help="Gmail app password (fallback if not using OAuth)"
+    ),
 ):
     """Scan your email for active subscriptions."""
     from inboxscan.models import EmailAccount, ScanResult
@@ -70,20 +74,24 @@ def run(
 
     for email_addr in accounts_to_scan:
         console.print(f"\n[dim]Scanning {email_addr}...[/dim]")
-        try:
-            access_token = get_access_token(email_addr)
-            account = EmailAccount(email=email_addr, access_token=access_token)
-        except ValueError as e:
-            console.print(f"[red]{e}[/red]")
-            continue
+        if password:
+            account = EmailAccount(email=email_addr, password=password)
+        else:
+            try:
+                access_token = get_access_token(email_addr)
+                account = EmailAccount(email=email_addr, access_token=access_token)
+            except ValueError as e:
+                console.print(f"[red]{e}[/red]")
+                continue
 
+        parsed_emails = []
         for msg_id, raw in fetch_emails(account):
             parsed = parse_raw_email(raw, msg_id, email_addr)
-            if parsed is None:
-                continue
-            sub = detect_service(parsed)
-            if sub is None:
-                continue
+            if parsed is not None:
+                parsed_emails.append(parsed)
+
+        from inboxscan.detector import detect_from_batch
+        for sub in detect_from_batch(parsed_emails):
             key = f"{sub.service_name}:{email_addr}"
             if key in seen_services:
                 continue
