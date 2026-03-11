@@ -17,9 +17,20 @@ def build_search_query() -> str:
     return query
 
 
+def _authenticate(imap: imaplib.IMAP4_SSL, account: EmailAccount) -> None:
+    if account.access_token:
+        from inboxscan.auth import build_xoauth2_string
+        auth_string = build_xoauth2_string(account.email, account.access_token)
+        imap.authenticate("XOAUTH2", lambda x: auth_string)
+    elif account.password:
+        imap.login(account.email, account.password)
+    else:
+        raise ValueError(f"No credentials for {account.email}. Run: inboxscan auth add")
+
+
 def fetch_emails(account: EmailAccount) -> Iterator[tuple[str, bytes]]:
     with imaplib.IMAP4_SSL(account.imap_host, account.imap_port) as imap:
-        imap.login(account.email, account.password)
+        _authenticate(imap, account)
         imap.select("INBOX", readonly=True)
         query = build_search_query()
         _, message_numbers = imap.search(None, query)
