@@ -74,7 +74,6 @@ class InboxScanApp(rumps.App):
         super().__init__("inboxscan", title="💳 —")
         self._result: Optional[ScanResult] = None
         self._scanning = False
-        self._show_dormant = False  # hidden by default
         self._load_cached()
 
     def _load_cached(self) -> None:
@@ -140,28 +139,23 @@ class InboxScanApp(rumps.App):
 
         if dormant:
             menu_items.append(None)
-            toggle_label = f"▼ Show dormant (${waste:.0f}/mo wasted)" if not self._show_dormant else f"▲ Hide dormant"
-            toggle_item = rumps.MenuItem(toggle_label, callback=self._toggle_dormant)
-            menu_items.append(toggle_item)
-
-        if dormant and self._show_dormant:
+            dormant_parent = rumps.MenuItem(f"Dormant  (${waste:.0f}/mo wasted) ▶")
             for sub in sorted(dormant, key=lambda s: -s.amount):
                 label = f"  {sub.service_name:<22} ${sub.amount:.2f}/{sub.billing_frequency[:2]}"
-                parent = rumps.MenuItem(label)
-                parent.add(rumps.MenuItem(f"  {sub.source_email}"))
+                item = rumps.MenuItem(label)
+                item.add(rumps.MenuItem(f"  {sub.source_email}"))
                 if sub.cancellation_url:
                     url = sub.cancellation_url
-                    cancel_item = rumps.MenuItem(
+                    item.add(rumps.MenuItem(
                         "Open cancellation page",
                         callback=lambda _, u=url: subprocess.run(["open", u])
-                    )
-                    parent.add(cancel_item)
-                remove_item = rumps.MenuItem(
+                    ))
+                item.add(rumps.MenuItem(
                     "Remove from list",
                     callback=lambda _, s=sub: self._remove_subscription(s)
-                )
-                parent.add(remove_item)
-                menu_items.append(parent)
+                ))
+                dormant_parent.add(item)
+            menu_items.append(dormant_parent)
 
         menu_items.append(None)
         menu_items.append(rumps.MenuItem(f"Total active: ${burn:.2f}/mo"))
@@ -179,10 +173,6 @@ class InboxScanApp(rumps.App):
 
         self.menu.clear()
         self.menu = menu_items
-
-    def _toggle_dormant(self, _: rumps.MenuItem) -> None:
-        self._show_dormant = not self._show_dormant
-        self._rebuild_menu()
 
     def _on_scan(self, _: rumps.MenuItem) -> None:
         if self._scanning:
