@@ -187,8 +187,13 @@ def detect_from_batch(emails: list[ParsedEmail]) -> list[Subscription]:
                 # Skip known transactional merchants
                 if any(t in merchant_key.lower() for t in TRANSACTIONAL_MERCHANTS):
                     continue
-                # Only flag if charged 2+ times (recurring)
-                if len(merchant_entries) < 2:
+                # Known services need only 1 charge — we know they're subscriptions.
+                # Unknown merchants need 2+ charges to confirm they're recurring.
+                _, resolved_info = merchant_entries[0]
+                is_known_service = any(
+                    kw in merchant_key.lower() for kw in STRIPE_SERVICE_KEYWORDS
+                )
+                if not is_known_service and len(merchant_entries) < 2:
                     continue
                 # Filter out repeat purchases: subscriptions charge similar amounts.
                 # If min/max ratio < 0.5, the amounts vary too much to be a subscription.
