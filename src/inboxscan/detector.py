@@ -52,6 +52,69 @@ KNOWN_SERVICES: dict[str, tuple[str, str, str]] = {
     "suno.ai": ("Suno", "https://suno.com/account", "monthly"),
 }
 
+# Payment processors that send receipts on behalf of other services.
+# Maps keyword found in email body/subject -> (display name, cancel URL, frequency)
+PAYMENT_PROCESSOR_DOMAINS = {"stripe.com", "paypal.com"}
+
+STRIPE_SERVICE_KEYWORDS: dict[str, tuple[str, str, str]] = {
+    "xai": ("xAI Grok", "https://x.ai/account", "monthly"),
+    "x.ai": ("xAI Grok", "https://x.ai/account", "monthly"),
+    "cursor": ("Cursor Pro", "https://cursor.sh/settings", "monthly"),
+    "linear": ("Linear", "https://linear.app/settings/billing", "monthly"),
+    "vercel": ("Vercel Pro", "https://vercel.com/account/billing", "monthly"),
+    "railway": ("Railway", "https://railway.app/account/billing", "monthly"),
+    "supabase": ("Supabase", "https://supabase.com/dashboard/account/billing", "monthly"),
+    "replicate": ("Replicate", "https://replicate.com/account/billing", "monthly"),
+    "sentry": ("Sentry", "https://sentry.io/settings/billing/", "monthly"),
+    "render": ("Render", "https://dashboard.render.com/billing", "monthly"),
+    "github": ("GitHub Pro", "https://github.com/settings/billing", "monthly"),
+    "notion": ("Notion", "https://www.notion.so/profile/billing", "monthly"),
+    "figma": ("Figma", "https://www.figma.com/settings#billing", "monthly"),
+    "anthropic": ("Claude Pro", "https://claude.ai/settings", "monthly"),
+    "openai": ("ChatGPT Plus", "https://chat.openai.com/account/billing", "monthly"),
+    "google": ("Google One", "https://one.google.com/about", "monthly"),
+}
+
+# Merchants known to be transactional (not subscriptions), filter even if recurring
+TRANSACTIONAL_MERCHANTS = {
+    "uber", "ubereats", "uber eats", "lyft", "instacart", "doordash",
+    "grubhub", "postmates", "temu", "amazon", "ebay", "etsy",
+    "cineplex", "fandango", "ticketmaster",
+}
+
+
+def _resolve_payment_processor(body: str, subject: str) -> Optional[tuple[str, str, str]]:
+    """If email is from a payment processor, identify the real service.
+
+    For PayPal: extracts the merchant name from "Receipt for Your Payment to X"
+    For Stripe: matches known service keywords in the subject line only
+    """
+    # PayPal subjects say exactly who was paid
+    paypal_match = re.search(r"payment to (.+?)(?:\.|$)", subject, re.IGNORECASE)
+    if paypal_match:
+        merchant = paypal_match.group(1).strip()
+        # Check if it's a known service
+        merchant_lower = merchant.lower()
+        for keyword, service_info in STRIPE_SERVICE_KEYWORDS.items():
+            if keyword in merchant_lower:
+                return service_info
+        # Unknown merchant — return it as-is with no cancel URL
+        return (merchant, None, "monthly")
+
+    # Stripe subjects say "Your receipt from COMPANY NAME #XXXX-XXXX"
+    stripe_match = re.search(r"your receipt from (.+?)(?:\s+#[\d-]+)?$", subject, re.IGNORECASE)
+    if stripe_match:
+        merchant = stripe_match.group(1).strip()
+        merchant_lower = merchant.lower()
+        for keyword, service_info in STRIPE_SERVICE_KEYWORDS.items():
+            if keyword in merchant_lower:
+                return service_info
+        # Unknown Stripe merchant — return as-is
+        return (merchant, None, "monthly")
+
+    return None
+
+
 DORMANT_THRESHOLD_DAYS = 90
 
 
@@ -109,6 +172,46 @@ def detect_from_batch(emails: list[ParsedEmail]) -> list[Subscription]:
         domain_emails.sort(key=lambda e: e.date, reverse=True)
         latest = domain_emails[0]
 
+        # Payment processor: split by merchant and only keep recurring ones
+        is_processor = any(domain.endswith(p) for p in PAYMENT_PROCESSOR_DOMAINS)
+        if is_processor:
+            by_merchant: dict[str, list[ParsedEmail]] = defaultdict(list)
+            for e in domain_emails:
+                resolved = _resolve_payment_processor(e.body_text, e.subject)
+                merchant_key = resolved[0] if resolved else "__unknown__"
+                by_merchant[merchant_key].append((e, resolved))
+
+            for merchant_key, merchant_entries in by_merchant.items():
+                if merchant_key == "__unknown__":
+                    continue
+                # Skip known transactional merchants
+                if any(t in merchant_key.lower() for t in TRANSACTIONAL_MERCHANTS):
+                    continue
+                # Only flag if charged 2+ times (recurring)
+                if len(merchant_entries) < 2:
+                    continue
+                # Filter out repeat purchases: subscriptions charge similar amounts.
+                # If min/max ratio < 0.5, the amounts vary too much to be a subscription.
+                amounts = [e.amount for e, _ in merchant_entries if e.amount]
+                if len(amounts) >= 2:
+                    ratio = min(amounts) / max(amounts)
+                    if ratio < 0.5:
+                        continue
+                merchant_entries.sort(key=lambda x: x[0].date, reverse=True)
+                latest_e, resolved = merchant_entries[0]
+                name, cancel_url, frequency = resolved
+                subscriptions.append(Subscription(
+                    service_name=name,
+                    amount=latest_e.amount,
+                    currency=latest_e.currency,
+                    billing_frequency=frequency,
+                    last_charge_date=latest_e.date,
+                    source_email="",
+                    status=classify_status(latest_e.date),
+                    cancellation_url=cancel_url,
+                ))
+            continue  # skip generic domain-level handling for processors
+
         if known_match:
             name, cancel_url, frequency = known_match
         elif len(domain_emails) >= 2:
@@ -118,6 +221,10 @@ def detect_from_batch(emails: list[ParsedEmail]) -> list[Subscription]:
             frequency = "monthly"
         else:
             continue  # single email, unknown service — skip
+
+        # Deduplicate: skip if same service name already detected
+        if any(s.service_name == name for s in subscriptions):
+            continue
 
         subscriptions.append(Subscription(
             service_name=name,

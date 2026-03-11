@@ -11,14 +11,14 @@ startup. "Scan Now" re-scans using stored OAuth tokens (run
 
 Everything runs locally — no data leaves your machine.
 """
+import subprocess
 import threading
-from datetime import datetime
 from typing import Optional
 
 import rumps
 
-from inboxscan.cache import load_result
-from inboxscan.models import ScanResult, SubscriptionStatus
+from inboxscan.cache import load_result, save_result
+from inboxscan.models import ScanResult, Subscription, SubscriptionStatus
 
 
 def _run_scan_background() -> Optional[ScanResult]:
@@ -28,7 +28,6 @@ def _run_scan_background() -> Optional[ScanResult]:
         from inboxscan.connector import fetch_emails
         from inboxscan.parser import parse_raw_email
         from inboxscan.detector import detect_from_batch
-        from inboxscan.cache import save_result
         from inboxscan.models import EmailAccount, ScanResult
 
         accounts = list_accounts()
@@ -81,7 +80,7 @@ class InboxScanApp(rumps.App):
         result = load_result()
         if result:
             self._result = result
-            self._rebuild_menu(scanning=False)
+            self._rebuild_menu()
         else:
             self.title = "💳 —"
             self.menu.clear()
@@ -92,6 +91,17 @@ class InboxScanApp(rumps.App):
                 None,
             ]
 
+    def _remove_subscription(self, sub: Subscription) -> None:
+        """Remove a subscription from cache and rebuild the menu."""
+        if self._result is None:
+            return
+        self._result.subscriptions = [
+            s for s in self._result.subscriptions
+            if not (s.service_name == sub.service_name and s.source_email == sub.source_email)
+        ]
+        save_result(self._result)
+        self._rebuild_menu()
+
     def _rebuild_menu(self, scanning: bool = False) -> None:
         result = self._result
         if result is None:
@@ -100,10 +110,7 @@ class InboxScanApp(rumps.App):
         burn = result.total_monthly_burn
         waste = result.dormant_monthly_waste
 
-        if scanning:
-            self.title = "💳 …"
-        else:
-            self.title = f"💳 ${burn:.0f}/mo"
+        self.title = "💳 …" if scanning else f"💳 ${burn:.0f}/mo"
 
         active = [s for s in result.subscriptions if s.status == SubscriptionStatus.ACTIVE]
         dormant = [s for s in result.subscriptions if s.status == SubscriptionStatus.DORMANT]
@@ -114,23 +121,45 @@ class InboxScanApp(rumps.App):
             menu_items.append(rumps.MenuItem("── ACTIVE ──"))
             for sub in sorted(active, key=lambda s: -s.amount):
                 label = f"  {sub.service_name:<22} ${sub.amount:.2f}/{sub.billing_frequency[:2]}"
-                item = rumps.MenuItem(label)
+                parent = rumps.MenuItem(label)
+                parent.add(rumps.MenuItem(f"  {sub.source_email}"))
                 if sub.cancellation_url:
                     url = sub.cancellation_url
-                    item.set_callback(lambda _, u=url: rumps.open_url(u))
-                menu_items.append(item)
+                    cancel_item = rumps.MenuItem(
+                        "Open cancellation page",
+                        callback=lambda _, u=url: subprocess.run(["open", u])
+                    )
+                    parent.add(cancel_item)
+                remove_item = rumps.MenuItem(
+                    "Remove from list",
+                    callback=lambda _, s=sub: self._remove_subscription(s)
+                )
+                parent.add(remove_item)
+                menu_items.append(parent)
 
         if dormant:
             menu_items.append(None)
             menu_items.append(rumps.MenuItem(f"── DORMANT  (wasting ${waste:.0f}/mo) ──"))
             for sub in sorted(dormant, key=lambda s: -s.amount):
                 label = f"  {sub.service_name:<22} ${sub.amount:.2f}/{sub.billing_frequency[:2]}"
-                item = rumps.MenuItem(label)
+                parent = rumps.MenuItem(label)
+                parent.add(rumps.MenuItem(f"  {sub.source_email}"))
                 if sub.cancellation_url:
                     url = sub.cancellation_url
-                    item.set_callback(lambda _, u=url: rumps.open_url(u))
-                menu_items.append(item)
+                    cancel_item = rumps.MenuItem(
+                        "Open cancellation page",
+                        callback=lambda _, u=url: subprocess.run(["open", u])
+                    )
+                    parent.add(cancel_item)
+                remove_item = rumps.MenuItem(
+                    "Remove from list",
+                    callback=lambda _, s=sub: self._remove_subscription(s)
+                )
+                parent.add(remove_item)
+                menu_items.append(parent)
 
+        menu_items.append(None)
+        menu_items.append(rumps.MenuItem(f"Total active: ${burn:.2f}/mo"))
         menu_items.append(None)
 
         scan_label = "Scanning…" if scanning else "Scan Now"
