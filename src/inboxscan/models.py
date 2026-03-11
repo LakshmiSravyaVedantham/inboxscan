@@ -13,7 +13,8 @@ class SubscriptionStatus(str, Enum):
 @dataclass
 class EmailAccount:
     email: str
-    password: str  # Gmail app password — never stored
+    password: Optional[str] = None       # kept for backwards compat
+    access_token: Optional[str] = None   # used for OAuth
     imap_host: str = "imap.gmail.com"
     imap_port: int = 993
 
