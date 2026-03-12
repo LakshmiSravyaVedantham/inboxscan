@@ -81,7 +81,14 @@ def remove_account(email: str, base: Optional[Path] = None) -> None:
 def add_account() -> str:
     """Run OAuth flow in browser. Returns the authenticated email address."""
     flow = InstalledAppFlow.from_client_config(_client_config(), SCOPES)
-    creds = flow.run_local_server(port=8080, prompt="consent")
+    for port in (8080, 8081, 8082, 9000, 9001):
+        try:
+            creds = flow.run_local_server(port=port, prompt="consent")
+            break
+        except OSError:
+            continue
+    else:
+        raise RuntimeError("Could not find a free port for OAuth callback (tried 8080-8082, 9000-9001)")
 
     import urllib.request
     req = urllib.request.Request(
