@@ -1,3 +1,4 @@
+import calendar
 import re
 from datetime import date, timedelta
 from typing import Optional
@@ -118,6 +119,21 @@ def _resolve_payment_processor(body: str, subject: str) -> Optional[tuple[str, s
 DORMANT_THRESHOLD_DAYS = 90
 
 
+def _add_billing_period(d: date, frequency: str) -> date:
+    if frequency == "annual":
+        return d.replace(year=d.year + 1)
+    elif frequency == "monthly":
+        month = d.month + 1
+        year = d.year
+        if month > 12:
+            month = 1
+            year += 1
+        max_day = calendar.monthrange(year, month)[1]
+        return d.replace(year=year, month=month, day=min(d.day, max_day))
+    else:
+        return d + timedelta(days=30)
+
+
 def _extract_sender_domain(sender: str) -> str:
     match = re.search(r"@([\w.]+)", sender)
     return match.group(1).lower() if match else ""
@@ -205,6 +221,13 @@ def detect_from_batch(emails: list[ParsedEmail]) -> list[Subscription]:
                 merchant_entries.sort(key=lambda x: x[0].date, reverse=True)
                 latest_e, resolved = merchant_entries[0]
                 name, cancel_url, frequency = resolved
+                oldest_date = min(e.date for e, _ in merchant_entries)
+                renewal = (
+                    next((e.next_renewal_date for e, _ in merchant_entries if e.next_renewal_date), None)
+                    or _add_billing_period(latest_e.date, frequency)
+                )
+                trial_end = next((e.trial_end_date for e, _ in merchant_entries if e.trial_end_date), None)
+                cancelled = next((e.cancellation_date for e, _ in merchant_entries if e.cancellation_date), None)
                 subscriptions.append(Subscription(
                     service_name=name,
                     amount=latest_e.amount,
@@ -214,6 +237,10 @@ def detect_from_batch(emails: list[ParsedEmail]) -> list[Subscription]:
                     source_email="",
                     status=classify_status(latest_e.date),
                     cancellation_url=cancel_url,
+                    start_date=oldest_date,
+                    next_renewal_date=renewal,
+                    trial_end_date=trial_end,
+                    cancellation_date=cancelled,
                 ))
             continue  # skip generic domain-level handling for processors
 
@@ -231,6 +258,13 @@ def detect_from_batch(emails: list[ParsedEmail]) -> list[Subscription]:
         if any(s.service_name == name for s in subscriptions):
             continue
 
+        oldest_date = domain_emails[-1].date  # already sorted descending
+        renewal = (
+            next((e.next_renewal_date for e in domain_emails if e.next_renewal_date), None)
+            or _add_billing_period(latest.date, frequency)
+        )
+        trial_end = next((e.trial_end_date for e in domain_emails if e.trial_end_date), None)
+        cancelled = next((e.cancellation_date for e in domain_emails if e.cancellation_date), None)
         subscriptions.append(Subscription(
             service_name=name,
             amount=latest.amount,
@@ -240,6 +274,10 @@ def detect_from_batch(emails: list[ParsedEmail]) -> list[Subscription]:
             source_email="",
             status=classify_status(latest.date),
             cancellation_url=cancel_url,
+            start_date=oldest_date,
+            next_renewal_date=renewal,
+            trial_end_date=trial_end,
+            cancellation_date=cancelled,
         ))
 
     return subscriptions

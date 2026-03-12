@@ -20,7 +20,9 @@ def print_report(result: ScanResult) -> None:
     table.add_column("Status", style="bold", width=10)
     table.add_column("Service", width=20)
     table.add_column("Amount", width=12)
-    table.add_column("Last charge", width=12)
+    table.add_column("Started", width=10)
+    table.add_column("Renews", width=13)
+    table.add_column("Notes", width=20, style="dim")
     table.add_column("Account", style="dim")
 
     for sub in sorted(result.subscriptions, key=lambda s: s.status.value):
@@ -29,11 +31,23 @@ def print_report(result: ScanResult) -> None:
             SubscriptionStatus.DORMANT: "[yellow]\\[DORMANT][/yellow]",
             SubscriptionStatus.UNKNOWN: "[dim]\\[UNKNOWN][/dim]",
         }[sub.status]
+
+        started = sub.start_date.strftime("%b %Y") if sub.start_date else "—"
+        renews = sub.next_renewal_date.strftime("%b %d, %Y") if sub.next_renewal_date else "—"
+
+        notes = ""
+        if sub.cancellation_date:
+            notes = f"[red]Cancelled {sub.cancellation_date.strftime('%b %d')}[/red]"
+        elif sub.trial_end_date:
+            notes = f"[yellow]Trial ends {sub.trial_end_date.strftime('%b %d')}[/yellow]"
+
         table.add_row(
             status_str,
             sub.service_name,
             f"${sub.amount:.2f}/{sub.billing_frequency[:2]}",
-            sub.last_charge_date.strftime("%b %d"),
+            started,
+            renews,
+            notes,
             sub.source_email,
         )
 

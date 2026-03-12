@@ -123,6 +123,14 @@ class InboxScanApp(rumps.App):
                 label = f"  {sub.service_name:<22} ${sub.amount:.2f}/{sub.billing_frequency[:2]}"
                 parent = rumps.MenuItem(label)
                 parent.add(rumps.MenuItem(f"  {sub.source_email}"))
+                if sub.start_date:
+                    parent.add(rumps.MenuItem(f"  Started: {sub.start_date.strftime('%b %Y')}"))
+                if sub.next_renewal_date:
+                    parent.add(rumps.MenuItem(f"  Renews: {sub.next_renewal_date.strftime('%b %d, %Y')}"))
+                if sub.trial_end_date:
+                    parent.add(rumps.MenuItem(f"  Trial ends: {sub.trial_end_date.strftime('%b %d, %Y')}"))
+                if sub.cancellation_date:
+                    parent.add(rumps.MenuItem(f"  Cancelled: {sub.cancellation_date.strftime('%b %d, %Y')}"))
                 if sub.cancellation_url:
                     url = sub.cancellation_url
                     cancel_item = rumps.MenuItem(
@@ -144,6 +152,14 @@ class InboxScanApp(rumps.App):
                 label = f"  {sub.service_name:<22} ${sub.amount:.2f}/{sub.billing_frequency[:2]}"
                 item = rumps.MenuItem(label)
                 item.add(rumps.MenuItem(f"  {sub.source_email}"))
+                if sub.start_date:
+                    item.add(rumps.MenuItem(f"  Started: {sub.start_date.strftime('%b %Y')}"))
+                if sub.next_renewal_date:
+                    item.add(rumps.MenuItem(f"  Renews: {sub.next_renewal_date.strftime('%b %d, %Y')}"))
+                if sub.trial_end_date:
+                    item.add(rumps.MenuItem(f"  Trial ends: {sub.trial_end_date.strftime('%b %d, %Y')}"))
+                if sub.cancellation_date:
+                    item.add(rumps.MenuItem(f"  Cancelled: {sub.cancellation_date.strftime('%b %d, %Y')}"))
                 if sub.cancellation_url:
                     url = sub.cancellation_url
                     item.add(rumps.MenuItem(

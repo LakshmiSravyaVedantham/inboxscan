@@ -28,6 +28,9 @@ class ParsedEmail:
     body_text: str
     amount: Optional[float] = None
     currency: str = "USD"
+    trial_end_date: Optional[date] = None
+    next_renewal_date: Optional[date] = None
+    cancellation_date: Optional[date] = None
 
 
 @dataclass
@@ -40,6 +43,10 @@ class Subscription:
     source_email: str  # which account found this
     status: SubscriptionStatus = SubscriptionStatus.ACTIVE
     cancellation_url: Optional[str] = None
+    start_date: Optional[date] = None
+    next_renewal_date: Optional[date] = None
+    trial_end_date: Optional[date] = None
+    cancellation_date: Optional[date] = None
 
 
 @dataclass
