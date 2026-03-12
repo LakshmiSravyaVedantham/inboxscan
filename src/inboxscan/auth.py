@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 import re
@@ -139,6 +138,7 @@ def get_access_token(email: str) -> str:
     return creds.token
 
 
-def build_xoauth2_string(email: str, access_token: str) -> str:
+def build_xoauth2_string(email: str, access_token: str) -> bytes:
+    """Return raw XOAUTH2 bytes — imaplib.authenticate base64-encodes internally."""
     auth_string = f"user={email}\x01auth=Bearer {access_token}\x01\x01"
-    return base64.b64encode(auth_string.encode()).decode()
+    return auth_string.encode()
