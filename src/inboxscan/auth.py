@@ -14,7 +14,11 @@ console = Console()
 
 TOKEN_DIR = Path.home() / ".inboxscan" / "tokens"
 
-SCOPES = ["https://mail.google.com/"]
+SCOPES = [
+    "https://mail.google.com/",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid",
+]
 
 
 def _client_config() -> dict:
@@ -92,7 +96,8 @@ def add_account() -> str:
 
     import urllib.request
     req = urllib.request.Request(
-        f"https://www.googleapis.com/oauth2/v1/userinfo?access_token={creds.token}"
+        "https://www.googleapis.com/oauth2/v2/userinfo",
+        headers={"Authorization": f"Bearer {creds.token}"},
     )
     with urllib.request.urlopen(req) as response:
         user_info = json.loads(response.read())
