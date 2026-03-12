@@ -83,6 +83,8 @@ def remove_account(email: str, base: Optional[Path] = None) -> None:
 
 def add_account() -> str:
     """Run OAuth flow in browser. Returns the authenticated email address."""
+    import os
+    os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
     flow = InstalledAppFlow.from_client_config(_client_config(), SCOPES)
     for port in (8080, 8081, 8082, 9000, 9001):
         try:
