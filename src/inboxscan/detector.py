@@ -280,6 +280,64 @@ def detect_from_batch(emails: list[ParsedEmail]) -> list[Subscription]:
             cancellation_date=cancelled,
         ))
 
+    # Second pass: enrich with no-amount emails (renewal reminders, trial warnings,
+    # expiry notices, cancellation confirmations) for known services.
+    # Also catch known services that only sent reminders (no charge found).
+    seen_names = {s.service_name for s in subscriptions}
+
+    # Build a lookup: service_domain -> subscription (for enrichment)
+    domain_to_sub: dict[str, Subscription] = {}
+    for sub in subscriptions:
+        for service_domain, (name, _, _) in KNOWN_SERVICES.items():
+            if name == sub.service_name:
+                domain_to_sub[service_domain] = sub
+                break
+
+    for email_item in emails:
+        if email_item.amount is not None:
+            continue  # already handled above
+        domain = _extract_sender_domain(email_item.sender)
+        if not domain:
+            continue
+
+        for service_domain, (name, cancel_url, frequency) in KNOWN_SERVICES.items():
+            if not domain.endswith(service_domain):
+                continue
+
+            if name in seen_names:
+                # Enrich existing subscription with dates from reminder email
+                sub = domain_to_sub.get(service_domain)
+                if sub:
+                    if email_item.trial_end_date and not sub.trial_end_date:
+                        sub.trial_end_date = email_item.trial_end_date
+                    if email_item.next_renewal_date and not sub.next_renewal_date:
+                        sub.next_renewal_date = email_item.next_renewal_date
+                    if email_item.cancellation_date and not sub.cancellation_date:
+                        sub.cancellation_date = email_item.cancellation_date
+            else:
+                # Known service detected only via reminder — no charge email found.
+                # Still add it so users can see it's active/expiring.
+                trial_end = email_item.trial_end_date
+                renewal = email_item.next_renewal_date
+                cancelled = email_item.cancellation_date
+                subscriptions.append(Subscription(
+                    service_name=name,
+                    amount=0.0,
+                    currency="USD",
+                    billing_frequency=frequency,
+                    last_charge_date=email_item.date,
+                    source_email="",
+                    status=classify_status(email_item.date),
+                    cancellation_url=cancel_url,
+                    start_date=email_item.date,
+                    next_renewal_date=renewal,
+                    trial_end_date=trial_end,
+                    cancellation_date=cancelled,
+                ))
+                seen_names.add(name)
+                domain_to_sub[service_domain] = subscriptions[-1]
+            break
+
     return subscriptions
 
 
