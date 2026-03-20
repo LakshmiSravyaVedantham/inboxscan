@@ -1,13 +1,17 @@
+import base64
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Optional
 
-from google.auth.transport.requests import Request
+from google.auth.transport.requests import AuthorizedSession, Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from rich.console import Console
+
+logger = logging.getLogger(__name__)
 
 console = Console()
 
@@ -81,9 +85,54 @@ def remove_account(email: str, base: Optional[Path] = None) -> None:
     path.unlink()
 
 
+def _email_from_id_token(creds: Credentials) -> Optional[str]:
+    """Decode the ID token JWT payload to extract the email address.
+
+    The ID token is returned by Google when openid + userinfo.email scopes are
+    requested.  Decoding it locally avoids a second network call that can fail
+    with HTTP 401 on certain Python versions / environments.
+    """
+    id_token = creds.id_token
+    if not id_token:
+        return None
+    try:
+        # JWT = header.payload.signature — we only need the payload
+        payload_b64 = id_token.split(".")[1]
+        # Add padding — base64 requires length to be a multiple of 4
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        email = payload.get("email")
+        if email and payload.get("email_verified", False):
+            return email
+        return email  # return even if unverified — caller decides
+    except (IndexError, ValueError, json.JSONDecodeError) as exc:
+        logger.debug("Could not decode ID token: %s", exc)
+        return None
+
+
+def _email_from_userinfo(creds: Credentials) -> str:
+    """Call Google's userinfo endpoint using google-auth's authenticated transport.
+
+    This is the fallback when the ID token is unavailable or missing the email
+    claim.  Uses AuthorizedSession (requests-based) instead of raw
+    urllib.request so that token refresh, retries, and proper auth headers are
+    handled by the library.
+    """
+    session = AuthorizedSession(creds)
+    resp = session.get("https://www.googleapis.com/oauth2/v2/userinfo")
+    resp.raise_for_status()
+    data = resp.json()
+    email = data.get("email")
+    if not email:
+        raise RuntimeError(
+            "Google userinfo response did not contain an email address. "
+            "Ensure the 'userinfo.email' scope was granted."
+        )
+    return email
+
+
 def add_account() -> str:
     """Run OAuth flow in browser. Returns the authenticated email address."""
-    import os
     os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
     flow = InstalledAppFlow.from_client_config(_client_config(), SCOPES)
     for port in (8080, 8081, 8082, 9000, 9001):
@@ -95,14 +144,11 @@ def add_account() -> str:
     else:
         raise RuntimeError("Could not find a free port for OAuth callback (tried 8080-8082, 9000-9001)")
 
-    import urllib.request
-    req = urllib.request.Request(
-        "https://www.googleapis.com/oauth2/v2/userinfo",
-        headers={"Authorization": f"Bearer {creds.token}"},
-    )
-    with urllib.request.urlopen(req) as response:
-        user_info = json.loads(response.read())
-    email = user_info["email"]
+    # Extract email: prefer local ID token decoding (no network call),
+    # fall back to authenticated userinfo request.
+    email = _email_from_id_token(creds)
+    if not email:
+        email = _email_from_userinfo(creds)
 
     token_data = {
         "email": email,
